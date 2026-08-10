@@ -124,6 +124,7 @@ window.PRAXSYS_RULES = {
       });
     }
     const correctiveActions=missedPractices.length;
+    const correctiveActionItems=missedPractices.map((element,j)=>{const followUp=((i+j)%3===0);return {element,action:`Corrective action required for: ${element}`,status:followUp?'Requires follow-up':'Completed during observation',identified:date.toISOString().slice(0,10),completed:followUp?'':date.toISOString().slice(0,10)};});
     const observedCount=insertionObserved?observationDefinitions.length:0;
     const expectedObserved=insertionObserved?observedCount-correctiveActions:0;
     const practiceCompliance=insertionObserved?Math.round(expectedObserved/observedCount*100):null;
@@ -145,6 +146,7 @@ window.PRAXSYS_RULES = {
       observations,
       missedPractices,
       correctiveActions,
+      correctiveActionItems,
       practiceCompliance,
       fullCompliance,
       pathwayOutcome,
@@ -200,6 +202,80 @@ window.PRAXSYS_FALL_STEPS = [
   window.PRAXSYS_FALL_MANAGER_DATA=records;
 })();
 
+window.PRAXSYS_CAUTI_PREVENTION_STEPS = [
+  {id:'preventionIndicationReview',step:1,type:'Display',source:'EHR Pull',question:'Review the currently documented provider indication for the indwelling urinary catheter.',options:['reviewed']},
+  {id:'preventionCurrentCriteria',step:2,type:'Decision',source:'Clinical Judgment',question:'After review of the patient’s current condition, does the patient currently meet criteria for continued indwelling urinary catheter use?',options:['io','other','no']},
+  {id:'preventionActionTaken',step:3,type:'Decision',source:'Clinical Judgment',question:'Select the action taken.',options:['removed','providerRequested','deferred']},
+  {id:'preventionAccurateIO',step:4,type:'Decision',source:'Clinical Judgment',question:'Does the patient continue to require accurate urine output monitoring that cannot be safely or reliably achieved without an indwelling catheter?',options:['yes','no']},
+  {id:'preventionClosedSystem',step:5,type:'Observation',source:'Observation',question:'Closed drainage system maintained (no breaks in system)?',options:['yes','no'],action:'Re-establish a closed drainage system and document the maintenance breach.'},
+  {id:'preventionBagBelowBladder',step:6,type:'Observation',source:'Observation',question:'Drainage bag positioned below bladder level?',options:['yes','no'],action:'Reposition the drainage bag below the level of the bladder.'},
+  {id:'preventionTubing',step:7,type:'Observation',source:'Observation',question:'Tubing free of dependent loops and kinks?',options:['yes','no'],action:'Reposition tubing to eliminate dependent loops and promote unobstructed urine flow.'},
+  {id:'preventionSecurement',step:8,type:'Observation',source:'Observation',question:'Catheter appropriately secured and free from tension or traction?',options:['yes','no'],action:'Apply or reposition the securement device to eliminate tension or traction on the catheter.'},
+  {id:'preventionPerinealCare',step:9,type:'Observation',source:'Observation',question:'Perineal care performed per policy and as indicated?',options:['yes','no'],action:'Perform perineal care per policy.'},
+  {id:'preventionBagOffFloor',step:10,type:'Observation',source:'Observation',question:'Collection bag not resting on floor?',options:['yes','no'],action:'Reposition the collection bag off the floor and below the level of the bladder.'},
+  {id:'preventionInsertionDocumentation',step:11,type:'Auto Pull',source:'EHR Pull',question:'Date and time of catheter insertion documented in the EHR?',options:['yes','no'],action:'Complete catheter insertion documentation in the EHR, including date and time of insertion.'},
+  {id:'preventionNecessityReassessment',step:12,type:'Auto Pull',source:'EHR Pull',question:'Date and time of the last catheter necessity reassessment documented per policy?',options:['yes','no'],action:'Document catheter necessity reassessment in the EHR per policy.'}
+];
+
+
+(function(){
+  const maintenanceSteps=(window.PRAXSYS_CAUTI_PREVENTION_STEPS||[]).filter(d=>d.step>=5);
+  const indications=[
+    'Accurate intake and output in a critically ill inpatient',
+    'Acute urinary retention or obstruction',
+    'Perioperative use for specified procedures or timeframes',
+    'Sacral or perineal wound in an incontinent patient',
+    'Comfort care or end-of-life care'
+  ];
+  const records=[];
+  const start=new Date('2026-05-01T08:00:00');
+  for(let i=0;i<72;i++){
+    const date=new Date(start); date.setDate(date.getDate()+Math.floor(i*1.25));
+    const indication=indications[i%indications.length];
+    let currentCriteria,actionTaken='Not required',accurateIO='Not applicable',reachedMaintenance=false,pathwayOutcome;
+    if(i%7===0){
+      currentCriteria='No longer meets criteria';
+      const branch=i%3;
+      if(branch===0){actionTaken='Removed under nurse-driven protocol';pathwayOutcome='Catheter removed under nurse-driven protocol';}
+      else if(branch===1){actionTaken='Provider notified / removal requested';pathwayOutcome='Provider notified and removal requested';}
+      else{actionTaken='Removal deferred for clinical concern; provider notified';pathwayOutcome='Removal deferred; continued prevention review';reachedMaintenance=true;}
+    }else if(i%4===0){
+      currentCriteria='Accurate I&O monitoring';
+      accurateIO=(i%8===0)?'No':'Yes';
+      if(accurateIO==='Yes'){pathwayOutcome='Accurate I&O need validated; continued prevention review';reachedMaintenance=true;}
+      else{pathwayOutcome='Accurate I&O not supported; provider notified / removal requested';}
+    }else{
+      currentCriteria='Other appropriate indication';
+      pathwayOutcome='Other appropriate indication validated; continued prevention review';
+      reachedMaintenance=true;
+    }
+    const responses={}; const correctiveActions=[];
+    if(reachedMaintenance){
+      maintenanceSteps.forEach((d,j)=>{
+        const missed=((i+j*6)%29===0)||((i%17===0)&&(j===2||j===7));
+        const answer=missed?'No':'Yes';
+        responses[d.id]=answer;
+        if(missed){const followUp=((i+j)%3===0);correctiveActions.push({step:d.step,element:d.question,action:d.action,status:followUp?'Requires follow-up':'Completed during observation',identified:date.toISOString().slice(0,10),completed:followUp?'':date.toISOString().slice(0,10)});}
+      });
+    }
+    records.push({
+      id:`PREV-${String(i+1).padStart(4,'0')}`,
+      patientId:`DEMO-${String(4101+i).padStart(4,'0')}`,
+      date:date.toISOString().slice(0,10),
+      documentedIndication:indication,
+      currentCriteria,
+      actionTaken,
+      accurateIO,
+      reachedMaintenance,
+      pathwayOutcome,
+      responses,
+      correctiveActions,
+      fullCompliance:reachedMaintenance&&correctiveActions.length===0
+    });
+  }
+  window.PRAXSYS_CAUTI_PREVENTION_MANAGER_DATA=records;
+})();
+
 (function () {
   const app = document.getElementById('app');
 
@@ -223,7 +299,8 @@ window.PRAXSYS_FALL_STEPS = [
     criteriaAnswer:null, criteriaAck:false, providerAnswer:null, providerAck:false,
     providerOrigin:'reviewOrder', currentObservation:'handHygiene', observationAnswer:null,
     observationAck:false, results:[], completion:null,
-    managerFilters:{month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'}, managerReport:'overview', managerSelected:null, managerDomain:'CAUTI', fallStep:0, fallAnswer:null, fallActionStatus:null, fallResults:[], fallCompletion:null
+    managerFilters:{month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'}, managerPreventionFilters:{month:'All',criteria:'All',outcome:'All',indication:'All'}, managerReport:'overview', managerSelected:null, managerDomain:'CAUTI', managerCautiPathway:'INSERTION', fallStep:0, fallAnswer:null, fallActionStatus:null, fallResults:[], fallCompletion:null,
+    preventionStep:0, preventionAnswer:null, preventionAck:false, preventionConcern:'', preventionHistory:[], preventionResults:[], preventionCompletion:null
   };
   const patient = () => window.PRAXSYS_PATIENTS[state.patientId];
 
@@ -248,11 +325,15 @@ window.PRAXSYS_FALL_STEPS = [
       return { key:`providerDecision:${state.providerOrigin}${patientPart}`, label:'Provider discussion — Clinical decision' };
     }
     if (state.view === 'manager') {
-      return { key:`manager:${state.managerDomain}:${state.managerReport}`, label:`Manager dashboard — ${state.managerDomain} — ${state.managerReport}` };
+      return { key:`manager:${state.managerDomain}:${state.managerDomain==='CAUTI'?state.managerCautiPathway:'FALLS'}:${state.managerReport}`, label:`Manager dashboard — ${state.managerDomain}${state.managerDomain==='CAUTI'?' — '+state.managerCautiPathway:''} — ${state.managerReport}` };
     }
     if (state.view === 'fallHome') return {key:`fallHome${patientPart}`,label:'Fall Prevention — Prevention Observation'};
     if (state.view === 'fallObservation') { const f=window.PRAXSYS_FALL_STEPS[state.fallStep]; return {key:`fall:${f.id}${patientPart}`,label:`Fall Prevention — Step ${f.step}`}; }
     if (state.view === 'fallCompletion') return {key:`fallCompletion${patientPart}`,label:'Fall Prevention — Observation complete'};
+    if (state.view === 'cautiPathwaySelect') return {key:`cautiPathwaySelect${patientPart}`,label:'CAUTI — Select pathway'};
+    if (state.view === 'preventionHome') return {key:`preventionHome${patientPart}`,label:'CAUTI Prevention Pathway'};
+    if (state.view === 'preventionObservation') { const f=window.PRAXSYS_CAUTI_PREVENTION_STEPS[state.preventionStep]; return {key:`cautiPrevention:${f.id}${patientPart}`,label:`CAUTI Prevention — Step ${f.step}`}; }
+    if (state.view === 'preventionCompletion') return {key:`preventionCompletion${patientPart}`,label:'CAUTI Prevention — Pathway complete'};
     const labels={
       role:'Workspace selection', patients:'Select a patient', conditions:'Select a patient safety condition',
       pathwayHome:'CAUTI prevention — Foley catheter insertion observation',
@@ -263,7 +344,7 @@ window.PRAXSYS_FALL_STEPS = [
   }
 
   function render() {
-    const renderers={role:renderRole,patients:renderPatients,conditions:renderConditions,pathwayHome:renderPathwayHome,reviewOrder:renderReviewOrder,clinicalAssessment:renderClinicalAssessment,providerDecision:renderProviderDecision,observation:renderObservation,completion:renderCompletion,manager:renderManager,fallHome:renderFallHome,fallObservation:renderFallObservation,fallCompletion:renderFallCompletion};
+    const renderers={role:renderRole,patients:renderPatients,conditions:renderConditions,cautiPathwaySelect:renderCautiPathwaySelect,pathwayHome:renderPathwayHome,preventionHome:renderPreventionHome,preventionObservation:renderPreventionObservation,preventionCompletion:renderPreventionCompletion,reviewOrder:renderReviewOrder,clinicalAssessment:renderClinicalAssessment,providerDecision:renderProviderDecision,observation:renderObservation,completion:renderCompletion,manager:renderManager,fallHome:renderFallHome,fallObservation:renderFallObservation,fallCompletion:renderFallCompletion};
     const reviewIdentity=reviewScreenIdentity();
     app.dataset.reviewScreenKey=reviewIdentity.key;
     app.dataset.reviewScreenLabel=reviewIdentity.label;
@@ -283,7 +364,33 @@ window.PRAXSYS_FALL_STEPS = [
 
   function renderConditions(){return shell(`<button class="back-link" data-back="patients">← Back</button><div class="card"><div class="section-label">Clinical focus</div><h1 class="card-title">Select a patient safety condition</h1></div><div class="tile-grid"><button class="tile" data-condition="CAUTI"><h3>CAUTI</h3><p>Catheter-associated urinary tract infection prevention and insertion observation.</p></button><button class="tile"><h3>CLABSI</h3><p>Central line-associated bloodstream infection.</p></button><button class="tile" data-condition="FALLS"><h3>Falls</h3><p>Fall prevention observation and corrective action follow-up.</p></button><button class="tile"><h3>Pressure Injury</h3><p>Skin integrity and pressure injury prevention.</p></button></div>`,`<div class="card"><div class="section-label">Selected patient</div><h2 class="card-title">${patient().name}</h2><div class="card-subtitle">${patient().unit} ${patient().room}<br>${patient().encounter}</div></div>`);}
 
-  function renderPathwayHome(){return shell(`<button class="back-link" data-back="conditions">← Back</button><div class="card"><div class="section-label">CAUTI prevention</div><h1 class="card-title">Foley catheter insertion observation</h1><div class="card-subtitle">Review the provider order, validate current clinical criteria, and observe insertion practices from preparation through EHR documentation.</div><div class="button-row"><button class="button primary" id="startPathway">Begin clinical review</button></div></div>`,`<div class="card"><div class="section-label">Data sources</div><span class="source-pill">EHR pull</span><span class="source-pill">Clinical judgment</span><span class="source-pill">Observation</span></div>`);}
+  function renderCautiPathwaySelect(){return shell(`<button class="back-link" data-back="conditions">← Back</button><div class="card"><div class="section-label">CAUTI</div><h1 class="card-title">Select a CAUTI pathway</h1><div class="card-subtitle">Choose the clinical workflow that matches the observation being performed.</div></div><div class="tile-grid"><button class="tile" data-cauti-pathway="insertion"><h3>CAUTI Insertion Pathway</h3><p>Review catheter insertion criteria and observe the insertion procedure from preparation through EHR documentation.</p></button><button class="tile" data-cauti-pathway="prevention"><h3>CAUTI Prevention Pathway</h3><p>Review continued catheter necessity and ongoing practices intended to prevent catheter-associated urinary tract infection.</p></button></div>`,`<div class="card"><div class="section-label">Selected patient</div><h2 class="card-title" style="font-size:21px">${patient().name}</h2><div class="card-subtitle">${patient().indication}<br>${patient().detail}</div></div>`);}
+
+  function renderPathwayHome(){return shell(`<button class="back-link" data-back="cautiPathwaySelect">← Back</button><div class="card"><div class="section-label">CAUTI prevention</div><h1 class="card-title">Foley catheter insertion observation</h1><div class="card-subtitle">Review the provider order, validate current clinical criteria, and observe insertion practices from preparation through EHR documentation.</div><div class="button-row"><button class="button primary" id="startPathway">Begin clinical review</button></div></div>`,`<div class="card"><div class="section-label">Data sources</div><span class="source-pill">EHR pull</span><span class="source-pill">Clinical judgment</span><span class="source-pill">Observation</span></div>`);}
+
+  function renderPreventionHome(){return shell(`<button class="back-link" data-back="cautiPathwaySelect">← Back</button><div class="card"><div class="section-label">CAUTI Prevention Pathway</div><h1 class="card-title">Indwelling urinary catheter prevention observation</h1><div class="card-subtitle">Review the documented indication, validate continued catheter necessity, and observe ongoing catheter-care practices.</div><div class="button-row"><button class="button primary" id="startPreventionPathway">Begin prevention review</button></div></div>`,`<div class="card"><div class="section-label">Data sources</div><span class="source-pill">EHR pull</span><span class="source-pill">Clinical judgment</span><span class="source-pill">Observation</span></div>`);}
+
+  function preventionStep(){return window.PRAXSYS_CAUTI_PREVENTION_STEPS[state.preventionStep];}
+  function preventionEhrPanel(){const p=patient();return `<div class="ehr-panel"><div class="section-label">Information from the EHR</div><h2 class="card-title" style="font-size:21px">Current catheter indication</h2><div class="ehr-grid"><div class="data-cell"><div class="data-label">Documented indication</div><div class="data-value">${p.indication}</div></div><div class="data-cell"><div class="data-label">Clinical detail</div><div class="data-value">${p.detail}</div></div><div class="data-cell"><div class="data-label">Provider</div><div class="data-value">${p.provider}</div></div><div class="data-cell"><div class="data-label">Source</div><div class="data-value">EHR Pull</div></div></div></div>`;}
+  function renderPreventionObservation(){const f=preventionStep();let context=f.step===1?preventionEhrPanel():'';let buttons='';let panel='';let can=false;
+    if(f.step===1){buttons=`<button class="decision yes ${state.preventionAnswer==='reviewed'?'active':''}" data-prevention-answer="reviewed">I acknowledge that I reviewed the documented indication.</button>`;can=state.preventionAnswer==='reviewed';}
+    else if(f.step===2){buttons=`<button class="decision yes ${state.preventionAnswer==='io'?'active':''}" data-prevention-answer="io">Yes — Accurate I&amp;O monitoring (critically ill patient)</button><button class="decision yes ${state.preventionAnswer==='other'?'active':''}" data-prevention-answer="other">Yes — Catheter remains clinically indicated for another appropriate indication</button><button class="decision no ${state.preventionAnswer==='no'?'active':''}" data-prevention-answer="no">No — Catheter no longer meets criteria for continued use</button>`;if(state.preventionAnswer==='no')panel=`<div class="inline-action danger"><strong>Consider appropriate alternatives.</strong> Examples may include a toileting program, bedside commode, urinal, bedpan, external urinary device, intermittent catheterization when clinically appropriate, or early mobility.</div>`;can=!!state.preventionAnswer;}
+    else if(f.step===3){buttons=`<button class="decision yes ${state.preventionAnswer==='removed'?'active':''}" data-prevention-answer="removed">Catheter removed per nurse-driven removal protocol</button><button class="decision ${state.preventionAnswer==='providerRequested'?'active':''}" data-prevention-answer="providerRequested">Provider notified and catheter removal requested</button><button class="decision no ${state.preventionAnswer==='deferred'?'active':''}" data-prevention-answer="deferred">Removal deferred due to clinical concern and provider notified</button>`;if(state.preventionAnswer==='removed')panel=`<div class="inline-action success"><strong>Required documentation:</strong> Document the catheter removal and actions taken in the EHR.</div>`;if(state.preventionAnswer==='providerRequested')panel=`<div class="inline-action warning"><strong>Required documentation:</strong> Document provider notification and the catheter removal request in the EHR. If the decision is made to maintain the catheter, restart this pathway.</div>`;if(state.preventionAnswer==='deferred')panel=`<div class="inline-action warning"><strong>Clinical concern:</strong><div class="question-helper" style="margin-top:8px">Specify the concern that led to deferring removal.</div><textarea id="preventionConcern" class="review-notes-textarea" style="width:100%;min-height:88px;margin-top:8px" placeholder="Enter clinical concern">${state.preventionConcern||''}</textarea><div class="question-helper" style="margin-top:8px">Document the concern and provider notification in the EHR.</div></div>`;can=!!state.preventionAnswer && (state.preventionAnswer!=='deferred'||!!state.preventionConcern.trim());}
+    else if(f.step===4){buttons=`<button class="decision yes ${state.preventionAnswer==='yes'?'active':''}" data-prevention-answer="yes">Yes</button><button class="decision no ${state.preventionAnswer==='no'?'active':''}" data-prevention-answer="no">No</button>`;if(state.preventionAnswer==='no')panel=`<div class="inline-action danger"><strong>Required action:</strong> Notify the provider and request catheter removal. Document the action in the EHR. If the catheter is maintained, restart this pathway.</div>`;can=!!state.preventionAnswer;}
+    else {buttons=`<button class="decision yes ${state.preventionAnswer==='yes'?'active':''}" data-prevention-answer="yes">Yes</button><button class="decision no ${state.preventionAnswer==='no'?'active':''}" data-prevention-answer="no">No</button>`;if(state.preventionAnswer==='no'){panel=`<div class="inline-action danger"><strong>Corrective action required:</strong> ${f.action}<label class="acknowledgment"><input type="checkbox" id="preventionAck" ${state.preventionAck?'checked':''}><span>I acknowledge the corrective action.</span></label></div>`;}can=state.preventionAnswer==='yes'||(state.preventionAnswer==='no'&&state.preventionAck);}
+    return shell(`<button class="back-link" id="backPreventionObservation">← Back</button>${context}<div class="card question-card" style="margin-top:${context?'14':'0'}px"><div class="section-label">CAUTI Prevention Pathway · Step ${f.step} of 12 · ${f.source}</div><h1 class="question-text">${f.question}</h1><div class="decision-row">${buttons}</div>${panel}<div class="button-row"><button class="button primary" id="continuePreventionObservation" ${can?'':'disabled'}>${f.step===12?'Complete pathway':'Continue'}</button></div></div>`,`<div class="card"><div class="section-label">Pathway</div><div class="card-subtitle">CAUTI Prevention<br>Step ${f.step} of 12</div></div>`);}
+
+  function savePreventionResult(){const f=preventionStep();state.preventionResults=state.preventionResults.filter(r=>r.step!==f.step);state.preventionResults.push({id:f.id,step:f.step,question:f.question,answer:state.preventionAnswer,action:state.preventionAnswer==='no'&&f.action?f.action:'',concern:f.step===3&&state.preventionAnswer==='deferred'?state.preventionConcern:''});}
+  function finishPrevention(status,summary,documentation){state.preventionCompletion={status,summary,documentation};state.view='preventionCompletion';}
+  function advancePrevention(){const f=preventionStep();savePreventionResult();
+    if(f.step===2){state.preventionHistory.push(state.preventionStep);state.preventionStep=state.preventionAnswer==='io'?3:state.preventionAnswer==='other'?4:2;}
+    else if(f.step===3){if(state.preventionAnswer==='removed'){finishPrevention('Catheter removed','The patient no longer met criteria for continued catheter use and the catheter was removed per the nurse-driven protocol.','Document catheter removal and actions taken in the EHR.');return;}if(state.preventionAnswer==='providerRequested'){finishPrevention('Removal requested','The provider was notified and catheter removal was requested.','Document provider notification and the removal request in the EHR. If the catheter is maintained, restart this pathway.');return;}state.preventionHistory.push(state.preventionStep);state.preventionStep=4;}
+    else if(f.step===4){if(state.preventionAnswer==='no'){finishPrevention('Removal requested','Accurate urine output monitoring can be safely or reliably achieved without the indwelling catheter.','Notify the provider, request catheter removal, and document the action in the EHR. If the catheter is maintained, restart this pathway.');return;}state.preventionHistory.push(state.preventionStep);state.preventionStep=4;}
+    else if(f.step===12){const actions=state.preventionResults.filter(r=>r.action).length;finishPrevention('CAUTI prevention observation complete',`The ongoing catheter-prevention observation has been recorded with ${actions} corrective action${actions===1?'':'s'}.`,'Complete any required corrective-action documentation in the EHR.');return;}
+    else {state.preventionHistory.push(state.preventionStep);state.preventionStep++;}
+    state.preventionAnswer=null;state.preventionAck=false;state.preventionConcern='';}
+  function backPrevention(){if(!state.preventionHistory.length){state.view='preventionHome';state.preventionAnswer=null;state.preventionAck=false;state.preventionConcern='';return;}const prev=state.preventionHistory.pop();const prevStep=window.PRAXSYS_CAUTI_PREVENTION_STEPS[prev];const prior=state.preventionResults.find(r=>r.step===prevStep.step);state.preventionResults=state.preventionResults.filter(r=>r.step!==prevStep.step);state.preventionStep=prev;state.preventionAnswer=prior?prior.answer:null;state.preventionAck=prior&&prior.answer==='no'&&!!prevStep.action;state.preventionConcern=prior&&prior.concern?prior.concern:'';}
+  function renderPreventionCompletion(){const c=state.preventionCompletion;const rows=state.preventionResults.slice().sort((a,b)=>a.step-b.step).map(r=>`<tr><td>${r.step}</td><td>${r.question}</td><td>${r.answer}</td><td>${r.action||r.concern||'—'}</td></tr>`).join('');return shell(`<div class="card completion"><div class="completion-icon">✓</div><div class="section-label">CAUTI Prevention Pathway</div><h1 class="card-title">Pathway recorded</h1><div class="card-subtitle">${c.summary}</div><div class="completion-grid"><div class="data-cell"><div class="data-label">Patient</div><div class="data-value">${patient().name}</div></div><div class="data-cell"><div class="data-label">Outcome</div><div class="data-value">${c.status}</div></div><div class="data-cell"><div class="data-label">Corrective actions</div><div class="data-value">${state.preventionResults.filter(r=>r.action).length}</div></div><div class="data-cell"><div class="data-label">Required documentation</div><div class="data-value">${c.documentation}</div></div></div><details class="disclosure" style="margin-top:18px"><summary>View pathway summary</summary><div style="overflow-x:auto"><table class="summary-table"><thead><tr><th>Step</th><th>Clinical question</th><th>Response</th><th>Corrective action / concern</th></tr></thead><tbody>${rows}</tbody></table></div></details><div class="button-row" style="justify-content:center"><button class="button primary" id="returnPreventionPatients">Return to patient list</button></div></div>`,`<div class="mini-note"><strong>CAUTI Prevention</strong><br>This pathway is separate from the CAUTI Insertion Pathway.</div>`);}
 
   function renderFallHome(){const f=window.PRAXSYS_FALL_PATIENTS[state.patientId];return shell(`<button class="back-link" data-back="conditions">← Back</button><div class="card"><div class="section-label">Fall Prevention</div><h1 class="card-title">Prevention Observation</h1><div class="card-subtitle">Review the most recent fall assessment, validate current risk, and observe individualized fall prevention practices.</div><div class="button-row"><button class="button primary" id="startFallPathway">Begin fall prevention review</button></div></div>`,`<div class="card"><div class="section-label">Current fall-risk context</div><div class="data-value">${f.risk} fall risk</div><div class="card-subtitle">${f.assessment}<br>Score ${f.score}<br>${f.assessedAt}</div><span class="source-pill">EHR pull</span><span class="source-pill">Clinical judgment</span><span class="source-pill">Observation</span></div>`);}
 
@@ -330,7 +437,7 @@ window.PRAXSYS_FALL_STEPS = [
     const f=state.managerFilters;
     return `<div class="manager-filters workflow-filters"><label>Month<select id="managerMonth">${optionList(months,f.month,'months')}</select></label><label>Order review<select id="managerOrder">${optionList(['Reviewed','Provider review required'],f.order,'results')}</select></label><label>Current criteria<select id="managerCriteria">${optionList(['Meets criteria','Does not meet criteria','Not assessed'],f.criteria,'results')}</select></label><label>Pathway outcome<select id="managerOutcome">${optionList(outcomes,f.outcome,'outcomes')}</select></label><label>Documented indication<select id="managerIndication">${optionList(indications,f.indication,'indications')}</select></label><button class="button secondary" id="clearManagerFilters">Clear filters</button></div>`;
   }
-  function reportTabs(){return `<div class="report-tabs"><button data-report="overview" class="report-tab ${state.managerReport==='overview'?'active':''}">Overview</button><button data-report="events" class="report-tab ${state.managerReport==='events'?'active':''}">Workflow cases</button><button data-report="missed" class="report-tab ${state.managerReport==='missed'?'active':''}">Corrective actions</button><button data-report="outcomes" class="report-tab ${state.managerReport==='outcomes'?'active':''}">Pathway outcomes</button></div>`;}
+  function reportTabs(){return `<div class="report-tabs"><button data-report="overview" class="report-tab ${state.managerReport==='overview'?'active':''}">Overview</button><button data-report="events" class="report-tab ${state.managerReport==='events'?'active':''}">Workflow cases</button><button data-report="missed" class="report-tab ${state.managerReport==='missed'?'active':''}">Corrective actions</button><button data-report="insertionFollowup" class="report-tab ${state.managerReport==='insertionFollowup'?'active':''}">Outstanding corrective actions</button><button data-report="outcomes" class="report-tab ${state.managerReport==='outcomes'?'active':''}">Pathway outcomes</button></div>`;}
   function barRows(items,max,labeler){return items.map(x=>`<button class="bar-row"><span class="bar-label">${x.label}</span><span class="bar-track"><span class="bar-fill" style="width:${max?Math.max(2,x.value/max*100):0}%"></span></span><strong>${labeler?labeler(x):x.value}</strong></button>`).join('');}
   function renderOverview(records){
     const insertion=records.filter(r=>r.insertionObserved);
@@ -347,6 +454,11 @@ window.PRAXSYS_FALL_STEPS = [
     const items=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([label,value])=>({label,value}));
     return `<div class="card"><div class="section-label">Corrective actions by insertion practice</div><div class="card-subtitle">Each count comes from a No response to an observation question in the clinician pathway.</div>${barRows(items,Math.max(1,...items.map(x=>x.value)))||'<div class="empty-state">No corrective actions occur in the selected workflow cases.</div>'}</div>`;
   }
+  function renderInsertionOutstanding(records){
+    const open=records.flatMap(r=>(r.correctiveActionItems||[]).filter(a=>a.status==='Requires follow-up').map(a=>({...a,caseId:r.id,patientId:r.patientId,date:r.date})));
+    const rows=open.map(a=>`<tr><td>${a.date}</td><td>${a.caseId}</td><td>${a.patientId}</td><td>${a.element}</td><td><span class="status-badge status-amber">Requires follow-up</span></td></tr>`).join('');
+    return `<div class="card"><div class="section-label">Outstanding Corrective Actions</div><h2 class="card-title" style="font-size:21px">CAUTI Insertion · Requires follow-up</h2><div class="table-wrap"><table class="summary-table manager-table"><thead><tr><th>Identified</th><th>Case</th><th>Patient ID</th><th>Insertion practice</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="5">No outstanding corrective actions.</td></tr>'}</tbody></table></div></div>`;
+  }
   function renderOutcomes(records){
     const labels=[...new Set((window.PRAXSYS_MANAGER_DATA||[]).map(r=>r.pathwayOutcome))];
     const rows=labels.map(label=>{const a=records.filter(r=>r.pathwayOutcome===label);return `<tr><td>${label}</td><td>${a.length}</td><td>${a.filter(r=>r.providerReviewRequired).length}</td><td>${a.filter(r=>r.insertionObserved).length}</td><td>${a.reduce((s,r)=>s+r.correctiveActions,0)}</td></tr>`;}).join('');
@@ -361,10 +473,75 @@ window.PRAXSYS_FALL_STEPS = [
     const r=(window.PRAXSYS_MANAGER_DATA||[]).find(x=>x.id===state.managerSelected);if(!r)return '';
     return `<div class="detail-overlay"><div class="detail-panel"><button class="detail-close" id="closeManagerDetail">×</button><div class="section-label">Synthetic workflow case</div><h2 class="card-title">${r.id} · ${r.patientId}</h2><div class="detail-grid"><div class="data-cell"><div class="data-label">Date / indication</div><div class="data-value">${r.date}<br>${r.indication}</div></div><div class="data-cell"><div class="data-label">Provider order review</div><div class="data-value">${r.orderReviewed?'Reviewed':'Provider review required'}</div></div><div class="data-cell"><div class="data-label">Current clinical criteria</div><div class="data-value">${r.criteriaMet===true?'Meets criteria':r.criteriaMet===false?'Does not meet criteria':'Not assessed'}</div></div><div class="data-cell"><div class="data-label">Provider decision / outcome</div><div class="data-value">${r.providerDecision}<br>${r.pathwayOutcome}</div></div></div>${observationRows(r)}<div class="mini-note"><strong>Corrective actions</strong><br>${r.missedPractices.length?r.missedPractices.join('<br>'):'None required'}</div><div class="mini-note"><strong>Required documentation</strong><br>${r.requiredDocumentation}</div></div></div>`;
   }
+  function cautiPathwayManagerSelector(){return `<div class="card" style="padding:14px 18px;margin-bottom:14px"><div class="section-label" style="margin-bottom:10px">CAUTI PATHWAY</div><div class="report-tabs domain-tabs" style="margin:0"><button class="report-tab ${state.managerCautiPathway==='INSERTION'?'active':''}" data-manager-cauti-pathway="INSERTION">CAUTI Insertion</button><button class="report-tab ${state.managerCautiPathway==='PREVENTION'?'active':''}" data-manager-cauti-pathway="PREVENTION">CAUTI Prevention</button></div></div>`;}
+  function preventionManagerRecords(){
+    const f=state.managerPreventionFilters||{};
+    return (window.PRAXSYS_CAUTI_PREVENTION_MANAGER_DATA||[]).filter(r=>
+      (isAllFilter(f.month)||r.date.slice(0,7)===f.month)&&
+      (isAllFilter(f.criteria)||r.currentCriteria===f.criteria)&&
+      (isAllFilter(f.outcome)||r.pathwayOutcome===f.outcome)&&
+      (isAllFilter(f.indication)||r.documentedIndication===f.indication));
+  }
+  function preventionManagerFilters(){
+    const all=window.PRAXSYS_CAUTI_PREVENTION_MANAGER_DATA||[];
+    const months=[...new Set(all.map(r=>r.date.slice(0,7)))];
+    const criteria=[...new Set(all.map(r=>r.currentCriteria))];
+    const outcomes=[...new Set(all.map(r=>r.pathwayOutcome))];
+    const indications=[...new Set(all.map(r=>r.documentedIndication))];
+    const f=state.managerPreventionFilters;
+    return `<div class="manager-filters workflow-filters"><label>Month<select id="preventionManagerMonth">${optionList(months,f.month,'months')}</select></label><label>Current criteria<select id="preventionManagerCriteria">${optionList(criteria,f.criteria,'results')}</select></label><label>Pathway outcome<select id="preventionManagerOutcome">${optionList(outcomes,f.outcome,'outcomes')}</select></label><label>Documented indication<select id="preventionManagerIndication">${optionList(indications,f.indication,'indications')}</select></label><button class="button secondary" id="clearPreventionManagerFilters">Clear filters</button></div>`;
+  }
+  function preventionReportTabs(){return `<div class="report-tabs"><button data-report="overview" class="report-tab ${state.managerReport==='overview'?'active':''}">Overview</button><button data-report="preventionCases" class="report-tab ${state.managerReport==='preventionCases'?'active':''}">Prevention reviews</button><button data-report="preventionActions" class="report-tab ${state.managerReport==='preventionActions'?'active':''}">Corrective actions</button><button data-report="preventionFollowup" class="report-tab ${state.managerReport==='preventionFollowup'?'active':''}">Outstanding corrective actions</button><button data-report="preventionOutcomes" class="report-tab ${state.managerReport==='preventionOutcomes'?'active':''}">Pathway outcomes</button></div>`;}
+  function renderPreventionManagerOverview(records){
+    const maintenance=records.filter(r=>r.reachedMaintenance);
+    const months=[...new Set(records.map(r=>r.date.slice(0,7)))];
+    const byMonth=months.map(month=>{const a=maintenance.filter(r=>r.date.startsWith(month));return {label:month,value:pct(a.filter(r=>r.fullCompliance).length,a.length)};});
+    const labels=[...new Set((window.PRAXSYS_CAUTI_PREVENTION_MANAGER_DATA||[]).map(r=>r.pathwayOutcome))];
+    const outcomes=labels.map(label=>({label,value:records.filter(r=>r.pathwayOutcome===label).length}));
+    return `<div class="dashboard-grid"><div class="card"><div class="section-label">Fully compliant prevention observations by month</div><div class="card-subtitle">Calculated only for cases that reached Steps 5–12. Fully compliant means all eight prevention / maintenance elements were recorded as Yes.</div>${barRows(byMonth,100,x=>`${x.value}%`)||'<div class="empty-state">No prevention observations match the current filters.</div>'}</div><div class="card"><div class="section-label">CAUTI Prevention pathway outcomes</div><div class="card-subtitle">Outcomes reflect the branching logic in Steps 2–4.</div>${barRows(outcomes,Math.max(1,...outcomes.map(x=>x.value)))||'<div class="empty-state">No prevention reviews match the current filters.</div>'}</div></div>`;
+  }
+  function renderPreventionManagerCases(records){
+    const rows=records.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<tr class="event-row" data-prevention-event-id="${r.id}"><td>${r.date}</td><td>${r.patientId}</td><td>${r.currentCriteria}</td><td>${r.accurateIO}</td><td>${r.pathwayOutcome}</td><td>${r.reachedMaintenance?(r.fullCompliance?'Fully compliant':`${r.correctiveActions.length} corrective action${r.correctiveActions.length===1?'':'s'}`):'Not reached'}</td></tr>`).join('');
+    return `<div class="card"><div class="section-label">Synthetic CAUTI Prevention reviews</div><div class="table-wrap"><table class="summary-table manager-table"><thead><tr><th>Date</th><th>Case</th><th>Current criteria</th><th>Accurate I&O validation</th><th>Pathway outcome</th><th>Steps 5–12</th></tr></thead><tbody>${rows||'<tr><td colspan="6">No prevention reviews match the current filters.</td></tr>'}</tbody></table></div></div>`;
+  }
+  function renderPreventionManagerActions(records){
+    const defs=(window.PRAXSYS_CAUTI_PREVENTION_STEPS||[]).filter(d=>d.step>=5);
+    const items=defs.map(d=>({label:`Step ${d.step} — ${d.question}`,value:records.reduce((n,r)=>n+r.correctiveActions.filter(a=>a.step===d.step).length,0)}));
+    const total=items.reduce((n,x)=>n+x.value,0);
+    return `<div class="card"><div class="section-label">Corrective actions by prevention element</div><div class="card-subtitle">Counts are generated only from No responses in Steps 5–12.</div>${barRows(items,Math.max(1,...items.map(x=>x.value)))||'<div class="empty-state">No corrective actions match the current filters.</div>'}<div class="mini-note"><strong>Total corrective actions:</strong> ${total}</div></div>`;
+  }
+  function renderPreventionOutstanding(records){
+    const open=records.flatMap(r=>r.correctiveActions.filter(a=>a.status==='Requires follow-up').map(a=>({...a,caseId:r.id,patientId:r.patientId,date:r.date})));
+    const rows=open.map(a=>`<tr><td>${a.date}</td><td>${a.caseId}</td><td>${a.patientId}</td><td>${a.step}</td><td>${a.action}</td><td><span class="status-badge status-amber">Requires follow-up</span></td></tr>`).join('');
+    return `<div class="card"><div class="section-label">Outstanding Corrective Actions</div><h2 class="card-title" style="font-size:21px">CAUTI Prevention · Requires follow-up</h2><div class="table-wrap"><table class="summary-table manager-table"><thead><tr><th>Identified</th><th>Case</th><th>Patient ID</th><th>Step</th><th>Corrective action</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="6">No outstanding corrective actions.</td></tr>'}</tbody></table></div></div>`;
+  }
+  function renderPreventionManagerOutcomes(records){
+    const labels=[...new Set((window.PRAXSYS_CAUTI_PREVENTION_MANAGER_DATA||[]).map(r=>r.pathwayOutcome))];
+    const items=labels.map(label=>({label,value:records.filter(r=>r.pathwayOutcome===label).length}));
+    return `<div class="card"><div class="section-label">Pathway outcomes</div><div class="card-subtitle">Distribution of final outcomes created by Steps 2–4.</div>${barRows(items,Math.max(1,...items.map(x=>x.value)))||'<div class="empty-state">No pathway outcomes match the current filters.</div>'}</div>`;
+  }
+  function renderPreventionManagerDetail(){
+    if(!state.managerSelected)return '';
+    const r=(window.PRAXSYS_CAUTI_PREVENTION_MANAGER_DATA||[]).find(x=>x.id===state.managerSelected); if(!r)return '';
+    const steps=(window.PRAXSYS_CAUTI_PREVENTION_STEPS||[]).filter(d=>d.step>=5);
+    const maintenance=r.reachedMaintenance?`<div class="table-wrap"><table class="summary-table"><thead><tr><th>Step</th><th>Prevention / maintenance element</th><th>Response</th><th>Corrective action</th></tr></thead><tbody>${steps.map(d=>{const ans=r.responses[d.id]||'—';const a=r.correctiveActions.find(x=>x.step===d.step);return `<tr><td>${d.step}</td><td>${d.question}</td><td><span class="status-badge ${ans==='Yes'?'status-blue':'status-red'}">${ans}</span></td><td>${a?a.action:'—'}</td></tr>`;}).join('')}</tbody></table></div>`:`<div class="mini-note"><strong>Steps 5–12</strong><br>This case ended before the prevention / maintenance observation sequence.</div>`;
+    return `<div class="detail-overlay"><div class="detail-panel"><button class="detail-close" id="closeManagerDetail">×</button><div class="section-label">Synthetic CAUTI Prevention case</div><h2 class="card-title">${r.id} · ${r.patientId}</h2><div class="detail-grid"><div class="data-cell"><div class="data-label">Date / documented indication</div><div class="data-value">${r.date}<br>${r.documentedIndication}</div></div><div class="data-cell"><div class="data-label">Current criteria</div><div class="data-value">${r.currentCriteria}</div></div><div class="data-cell"><div class="data-label">Step 3 action / Step 4 I&O validation</div><div class="data-value">${r.actionTaken}<br>${r.accurateIO}</div></div><div class="data-cell"><div class="data-label">Pathway outcome</div><div class="data-value">${r.pathwayOutcome}</div></div></div>${maintenance}</div></div>`;
+  }
+  function renderCautiPreventionManager(){
+    const records=preventionManagerRecords();
+    const maintenance=records.filter(r=>r.reachedMaintenance);
+    const full=maintenance.filter(r=>r.fullCompliance).length;
+    const compliance=pct(full,maintenance.length);
+    const corrective=records.reduce((n,r)=>n+r.correctiveActions.length,0);
+    const removalRelated=records.filter(r=>/removed|removal requested|not supported/i.test(r.pathwayOutcome)).length;
+    const outstanding=records.reduce((n,r)=>n+r.correctiveActions.filter(a=>a.status==='Requires follow-up').length,0);
+    let report=state.managerReport==='preventionCases'?renderPreventionManagerCases(records):state.managerReport==='preventionActions'?renderPreventionManagerActions(records):state.managerReport==='preventionFollowup'?renderPreventionOutstanding(records):state.managerReport==='preventionOutcomes'?renderPreventionManagerOutcomes(records):renderPreventionManagerOverview(records);
+    return `<button class="back-link" data-back="role">← Back</button><div class="card manager-heading"><div><div class="section-label">Nursing leadership</div><h1 class="card-title">CAUTI Prevention dashboard</h1><div class="card-subtitle">Synthetic demonstration data follows the CAUTI Prevention Pathway: continued-necessity validation in Steps 1–4 and prevention / maintenance observations in Steps 5–12. No real patient information is included.</div></div><span class="status-badge status-blue">${records.length} prevention reviews</span></div>${managerDomainSelector()}${cautiPathwayManagerSelector()}${preventionManagerFilters()}<div class="kpi-grid"><button class="kpi kpi-button" data-report="preventionCases"><div class="kpi-label">Prevention reviews</div><div class="kpi-value">${records.length}</div><span class="status-badge status-blue">Selected synthetic cases</span></button><button class="kpi kpi-button" data-report="preventionCases"><div class="kpi-label">Reached Steps 5–12</div><div class="kpi-value">${maintenance.length}</div><span class="status-badge status-blue">Continued prevention review</span></button><button class="kpi kpi-button" data-report="overview"><div class="kpi-label">Fully compliant maintenance</div><div class="kpi-value">${compliance}%</div><span class="status-badge ${compliance>=95?'status-blue':'status-amber'}">${full} of ${maintenance.length} cases</span></button><button class="kpi kpi-button" data-report="preventionActions"><div class="kpi-label">Corrective actions</div><div class="kpi-value">${corrective}</div><span class="status-badge ${corrective?'status-amber':'status-blue'}">${removalRelated} removal-related outcomes</span></button><button class="kpi kpi-button" data-report="preventionFollowup"><div class="kpi-label">Outstanding follow-up</div><div class="kpi-value">${outstanding}</div><span class="status-badge ${outstanding?'status-amber':'status-blue'}">Requires follow-up</span></button></div>${preventionReportTabs()}${report}${renderPreventionManagerDetail()}`;
+  }
   function managerDomainSelector(){return `<div class="report-tabs domain-tabs"><button class="report-tab ${state.managerDomain==='CAUTI'?'active':''}" data-manager-domain="CAUTI">CAUTI</button><button class="report-tab ${state.managerDomain==='FALLS'?'active':''}" data-manager-domain="FALLS">Falls Prevention</button></div>`;}
   function renderFallsManager(){const records=window.PRAXSYS_FALL_MANAGER_DATA||[];const actions=records.flatMap(r=>r.correctiveActions.map(a=>({...a,caseId:r.id,patientId:r.patientId,risk:r.risk})));const open=actions.filter(a=>a.status==='Requires follow-up');const completed=actions.filter(a=>a.status==='Completed during observation');const compliant=records.filter(r=>r.compliant).length;const byStep=window.PRAXSYS_FALL_STEPS.slice(1).map(d=>({step:d.step,label:d.question,count:actions.filter(a=>a.step===d.step).length}));let body='';if(state.managerReport==='followup'){body=`<div class="card"><div class="section-label">Outstanding Corrective Actions</div><h2 class="card-title" style="font-size:21px">Requires follow-up</h2><div class="table-wrap"><table class="summary-table manager-table"><thead><tr><th>Case</th><th>Risk</th><th>Step</th><th>Corrective action</th><th>Status</th></tr></thead><tbody>${open.map(a=>`<tr><td>${a.caseId}</td><td>${a.risk}</td><td>${a.step}</td><td>${a.action}</td><td><span class="status-badge status-amber">Requires follow-up</span></td></tr>`).join('')||'<tr><td colspan="5">No outstanding corrective actions.</td></tr>'}</tbody></table></div></div>`;}else if(state.managerReport==='fallActions'){body=`<div class="card"><div class="section-label">Corrective actions by pathway step</div>${byStep.map(x=>`<div class="bar-row"><span class="bar-label">Step ${x.step}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.min(100,x.count*10)}%"></span></span><strong>${x.count}</strong></div>`).join('')}</div>`;}else{body=`<div class="dashboard-grid"><div class="card"><div class="section-label">Fall Prevention pathway</div><h2 class="card-title" style="font-size:21px">Observation summary</h2><div class="card-subtitle">Synthetic demonstration cases based on the Fall Prevention Pathway.</div>${byStep.slice(0,5).map(x=>`<div class="bar-row"><span class="bar-label">Step ${x.step}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.min(100,x.count*10)}%"></span></span><strong>${x.count}</strong></div>`).join('')}</div><div class="card"><div class="section-label">Follow-up status</div><div class="data-cell"><div class="data-label">Completed during observation</div><div class="data-value">${completed.length}</div></div><div class="data-cell" style="margin-top:10px"><div class="data-label">Requires follow-up</div><div class="data-value">${open.length}</div></div></div></div>`;}
     return `<button class="back-link" data-back="role">← Back</button><div class="card manager-heading"><div><div class="section-label">Nursing leadership</div><h1 class="card-title">Fall Prevention dashboard</h1><div class="card-subtitle">Synthetic demonstration data based on the Fall Prevention Pathway. Existing CAUTI reporting remains available as a separate domain.</div></div><span class="status-badge status-blue">${records.length} observations</span></div>${managerDomainSelector()}<div class="kpi-grid"><div class="kpi"><div class="kpi-label">Prevention observations</div><div class="kpi-value">${records.length}</div></div><div class="kpi"><div class="kpi-label">Fully compliant</div><div class="kpi-value">${pct(compliant,records.length)}%</div></div><button class="kpi kpi-button" data-report="fallActions"><div class="kpi-label">Corrective actions</div><div class="kpi-value">${actions.length}</div></button><button class="kpi kpi-button" data-report="followup"><div class="kpi-label">Outstanding follow-up</div><div class="kpi-value">${open.length}</div><span class="status-badge ${open.length?'status-amber':'status-blue'}">Requires follow-up</span></button></div><div class="report-tabs"><button class="report-tab ${state.managerReport==='overview'?'active':''}" data-report="overview">Overview</button><button class="report-tab ${state.managerReport==='fallActions'?'active':''}" data-report="fallActions">Corrective actions</button><button class="report-tab ${state.managerReport==='followup'?'active':''}" data-report="followup">Outstanding corrective actions</button></div>${body}`;}
-  function renderManager(){return state.managerDomain==='FALLS'?renderFallsManager():renderCautiManager().replace('<div class="kpi-grid">',managerDomainSelector()+'<div class="kpi-grid">');}
+  function renderManager(){if(state.managerDomain==='FALLS')return renderFallsManager();return state.managerCautiPathway==='PREVENTION'?renderCautiPreventionManager():renderCautiManager();}
 
   function renderCautiManager(){
     const records=managerRecords();
@@ -373,8 +550,9 @@ window.PRAXSYS_FALL_STEPS = [
     const compliance=pct(full,insertion.length);
     const corrective=records.reduce((s,r)=>s+r.correctiveActions,0);
     const providerReviews=records.filter(r=>r.providerReviewRequired).length;
-    let report=state.managerReport==='events'?renderEvents(records):state.managerReport==='missed'?renderMissed(records):state.managerReport==='outcomes'?renderOutcomes(records):renderOverview(records);
-    return `<button class="back-link" data-back="role">← Back</button><div class="card manager-heading"><div><div class="section-label">Nursing leadership</div><h1 class="card-title">CAUTI workflow dashboard</h1><div class="card-subtitle">Reports are calculated only from synthetic cases that follow the order review, current-criteria, provider-decision, and insertion-observation parameters in this demo. No real patient information is included.</div></div><span class="status-badge status-blue">${records.length} workflow cases</span></div>${managerFilters()}<div class="kpi-grid"><button class="kpi kpi-button" data-kpi-report="events"><div class="kpi-label">Workflow cases</div><div class="kpi-value">${records.length}</div><span class="status-badge status-blue">Selected synthetic cases</span></button><button class="kpi kpi-button" data-kpi-report="events"><div class="kpi-label">Insertion observations</div><div class="kpi-value">${insertion.length}</div><span class="status-badge status-blue">Reached observation pathway</span></button><button class="kpi kpi-button" data-kpi-report="overview"><div class="kpi-label">Fully compliant insertions</div><div class="kpi-value">${compliance}%</div><span class="status-badge ${compliance>=95?'status-blue':'status-amber'}">${full} of ${insertion.length} cases</span></button><button class="kpi kpi-button" data-kpi-report="missed"><div class="kpi-label">Corrective actions</div><div class="kpi-value">${corrective}</div><span class="status-badge ${corrective?'status-amber':'status-blue'}">${providerReviews} provider reviews required</span></button></div>${reportTabs()}${report}${renderManagerDetail()}`;
+    const outstanding=records.reduce((n,r)=>n+(r.correctiveActionItems||[]).filter(a=>a.status==='Requires follow-up').length,0);
+    let report=state.managerReport==='events'?renderEvents(records):state.managerReport==='missed'?renderMissed(records):state.managerReport==='insertionFollowup'?renderInsertionOutstanding(records):state.managerReport==='outcomes'?renderOutcomes(records):renderOverview(records);
+    return `<button class="back-link" data-back="role">← Back</button><div class="card manager-heading"><div><div class="section-label">Nursing leadership</div><h1 class="card-title">CAUTI workflow dashboard</h1><div class="card-subtitle">Reports are calculated only from synthetic cases that follow the order review, current-criteria, provider-decision, and insertion-observation parameters in this demo. No real patient information is included.</div></div><span class="status-badge status-blue">${records.length} workflow cases</span></div>${managerDomainSelector()}${cautiPathwayManagerSelector()}${managerFilters()}<div class="kpi-grid"><button class="kpi kpi-button" data-kpi-report="events"><div class="kpi-label">Workflow cases</div><div class="kpi-value">${records.length}</div><span class="status-badge status-blue">Selected synthetic cases</span></button><button class="kpi kpi-button" data-kpi-report="events"><div class="kpi-label">Insertion observations</div><div class="kpi-value">${insertion.length}</div><span class="status-badge status-blue">Reached observation pathway</span></button><button class="kpi kpi-button" data-kpi-report="overview"><div class="kpi-label">Fully compliant insertions</div><div class="kpi-value">${compliance}%</div><span class="status-badge ${compliance>=95?'status-blue':'status-amber'}">${full} of ${insertion.length} cases</span></button><button class="kpi kpi-button" data-kpi-report="missed"><div class="kpi-label">Corrective actions</div><div class="kpi-value">${corrective}</div><span class="status-badge ${corrective?'status-amber':'status-blue'}">${providerReviews} provider reviews required</span></button><button class="kpi kpi-button" data-report="insertionFollowup"><div class="kpi-label">Outstanding follow-up</div><div class="kpi-value">${outstanding}</div><span class="status-badge ${outstanding?'status-amber':'status-blue'}">Requires follow-up</span></button></div>${reportTabs()}${report}${renderManagerDetail()}`;
   }
 
 
@@ -385,7 +563,15 @@ window.PRAXSYS_FALL_STEPS = [
     document.querySelectorAll('[data-role]').forEach(el=>el.onclick=()=>{state.role=el.dataset.role;render();});
     const cr=document.getElementById('continueRole');if(cr)cr.onclick=()=>{state.view=state.role==='Manager'?'manager':'patients';render();};
     document.querySelectorAll('[data-patient]').forEach(el=>el.onclick=()=>{state.patientId=el.dataset.patient;state.view='conditions';render();});
-    document.querySelectorAll('[data-condition="CAUTI"]').forEach(el=>el.onclick=()=>{state.view='pathwayHome';render();});
+    document.querySelectorAll('[data-condition="CAUTI"]').forEach(el=>el.onclick=()=>{state.view='cautiPathwaySelect';render();});
+    document.querySelectorAll('[data-cauti-pathway]').forEach(el=>el.onclick=()=>{if(el.dataset.cautiPathway==='insertion'){state.view='pathwayHome';}else{state.preventionStep=0;state.preventionAnswer=null;state.preventionAck=false;state.preventionConcern='';state.preventionHistory=[];state.preventionResults=[];state.preventionCompletion=null;state.view='preventionHome';}render();});
+    const spp=document.getElementById('startPreventionPathway');if(spp)spp.onclick=()=>{state.preventionStep=0;state.preventionAnswer=null;state.preventionAck=false;state.preventionConcern='';state.preventionHistory=[];state.preventionResults=[];state.preventionCompletion=null;state.view='preventionObservation';render();};
+    document.querySelectorAll('[data-prevention-answer]').forEach(el=>el.onclick=()=>{state.preventionAnswer=el.dataset.preventionAnswer;state.preventionAck=false;if(state.preventionAnswer!=='deferred')state.preventionConcern='';render();});
+    const pcon=document.getElementById('preventionConcern');if(pcon)pcon.oninput=e=>{state.preventionConcern=e.target.value;const btn=document.getElementById('continuePreventionObservation');if(btn)btn.disabled=!state.preventionConcern.trim();};
+    const pack=document.getElementById('preventionAck');if(pack)pack.onchange=e=>{state.preventionAck=e.target.checked;render();};
+    const bpo=document.getElementById('backPreventionObservation');if(bpo)bpo.onclick=()=>{backPrevention();render();};
+    const cpo=document.getElementById('continuePreventionObservation');if(cpo)cpo.onclick=()=>{advancePrevention();render();};
+    const rpp=document.getElementById('returnPreventionPatients');if(rpp)rpp.onclick=()=>reset('patients');
     document.querySelectorAll('[data-condition="FALLS"]').forEach(el=>el.onclick=()=>{state.fallStep=0;state.fallAnswer=null;state.fallActionStatus=null;state.fallResults=[];state.view='fallHome';render();});
     const sf=document.getElementById('startFallPathway');if(sf)sf.onclick=()=>{state.fallStep=0;state.fallAnswer=null;state.fallActionStatus=null;state.fallResults=[];state.view='fallObservation';render();};
     document.querySelectorAll('[data-fall-answer]').forEach(el=>el.onclick=()=>{state.fallAnswer=el.dataset.fallAnswer;state.fallActionStatus=null;render();});
@@ -411,12 +597,16 @@ window.PRAXSYS_FALL_STEPS = [
     const mf={managerMonth:'month',managerOrder:'order',managerCriteria:'criteria',managerOutcome:'outcome',managerIndication:'indication'};Object.entries(mf).forEach(([id,key])=>{const el=document.getElementById(id);if(el)el.onchange=e=>{state.managerFilters[key]=e.target.value;state.managerSelected=null;render();};});
     const clear=document.getElementById('clearManagerFilters');if(clear)clear.onclick=()=>{state.managerFilters={month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'};state.managerSelected=null;render();};
     document.querySelectorAll('[data-manager-domain]').forEach(el=>el.onclick=()=>{state.managerDomain=el.dataset.managerDomain;state.managerReport='overview';state.managerSelected=null;render();});
+    document.querySelectorAll('[data-manager-cauti-pathway]').forEach(el=>el.onclick=()=>{state.managerCautiPathway=el.dataset.managerCautiPathway;state.managerReport='overview';state.managerSelected=null;render();});
+    const pmf={preventionManagerMonth:'month',preventionManagerCriteria:'criteria',preventionManagerOutcome:'outcome',preventionManagerIndication:'indication'};Object.entries(pmf).forEach(([id,key])=>{const el=document.getElementById(id);if(el)el.onchange=e=>{state.managerPreventionFilters[key]=e.target.value;state.managerSelected=null;render();};});
+    const pclear=document.getElementById('clearPreventionManagerFilters');if(pclear)pclear.onclick=()=>{state.managerPreventionFilters={month:'All',criteria:'All',outcome:'All',indication:'All'};state.managerSelected=null;render();};
+    document.querySelectorAll('[data-prevention-event-id]').forEach(el=>el.onclick=()=>{state.managerSelected=el.dataset.preventionEventId;render();});
     document.querySelectorAll('[data-report]').forEach(el=>el.onclick=()=>{state.managerReport=el.dataset.report;state.managerSelected=null;render();});
     document.querySelectorAll('[data-kpi-report]').forEach(el=>el.onclick=()=>{state.managerReport=el.dataset.kpiReport;state.managerSelected=null;render();});
     document.querySelectorAll('[data-event-id]').forEach(el=>el.onclick=()=>{state.managerSelected=el.dataset.eventId;render();});
     const close=document.getElementById('closeManagerDetail');if(close)close.onclick=()=>{state.managerSelected=null;render();};
   }
 
-  function reset(destination='role'){Object.assign(state,{view:destination,role:'Clinician',patientId:'john',reviewAnswer:null,reviewAck:false,criteriaAnswer:null,criteriaAck:false,providerAnswer:null,providerAck:false,providerOrigin:'reviewOrder',currentObservation:'handHygiene',observationAnswer:null,observationAck:false,results:[],completion:null,managerFilters:{month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'},managerReport:'overview',managerSelected:null,managerDomain:'CAUTI',fallStep:0,fallAnswer:null,fallActionStatus:null,fallResults:[],fallCompletion:null});render();}
+  function reset(destination='role'){Object.assign(state,{view:destination,role:'Clinician',patientId:'john',reviewAnswer:null,reviewAck:false,criteriaAnswer:null,criteriaAck:false,providerAnswer:null,providerAck:false,providerOrigin:'reviewOrder',currentObservation:'handHygiene',observationAnswer:null,observationAck:false,results:[],completion:null,managerFilters:{month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'},managerPreventionFilters:{month:'All',criteria:'All',outcome:'All',indication:'All'},managerReport:'overview',managerSelected:null,managerDomain:'CAUTI',managerCautiPathway:'INSERTION',fallStep:0,fallAnswer:null,fallActionStatus:null,fallResults:[],fallCompletion:null,preventionStep:0,preventionAnswer:null,preventionAck:false,preventionConcern:'',preventionHistory:[],preventionResults:[],preventionCompletion:null});render();}
   document.getElementById('resetDemoButton').onclick=()=>reset('role');render();
 })();;

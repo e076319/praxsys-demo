@@ -160,6 +160,46 @@ window.PRAXSYS_RULES = {
   window.PRAXSYS_MANAGER_DATA=records;
   window.PRAXSYS_OBSERVATION_DEFINITIONS=observationDefinitions;
 })();;
+window.PRAXSYS_FALL_PATIENTS = {
+  john: { risk:'High', score:'60', assessment:'Morse Fall Scale', assessedAt:'2026-08-10 07:42', assessmentAvailable:true },
+  mary: { risk:'Moderate', score:'45', assessment:'Morse Fall Scale', assessedAt:'2026-08-10 06:55', assessmentAvailable:true }
+};
+
+window.PRAXSYS_FALL_STEPS = [
+  {id:'fallAssessmentReview',step:1,type:'Display',source:'EHR Pull',question:'Review the most recent fall assessment documented in the EHR.',options:['reviewed','unavailable']},
+  {id:'fallPolicyAssessment',step:2,type:'Observation',source:'Observation',question:'Was the fall risk assessment completed according to organizational policy?',options:['yes','no'],action:'Complete or update the fall risk assessment.'},
+  {id:'fallNurseValidation',step:3,type:'Decision',source:'Clinical Judgement',question:"Nurse Validation: Does the documented fall risk assessment accurately reflect the patient's current condition?",options:['yes','no'],action:"Reassess the patient's fall risk assessment, update the EHR and individualized interventions."},
+  {id:'fallMobilityPlan',step:4,type:'Observation',source:'Observation',question:'Individualized mobility plan documented and implemented?',options:['yes','no'],action:'Complete the mobility assessment and implement the appropriate mobility plan.'},
+  {id:'fallMobilityEquipment',step:5,type:'Observation',source:'Observation',question:'Required mobility equipment available and accessible?',options:['yes','no','na'],action:'Ensure appropriate mobility equipment is available before patient mobility.'},
+  {id:'fallCognitiveAssessment',step:6,type:'Observation',source:'Observation',question:'Was the Cognitive risk assessment completed according to organizational policy and appropriate interventions implemented when indicated?',options:['yes','no'],action:'Complete cognitive assessment and implement indicated interventions or referrals.'},
+  {id:'fallToiletingPlan',step:7,type:'Observation',source:'Observation',question:'Individualized toileting plan implemented when indicated?',options:['yes','no'],action:'Implement or update the toileting plan.'},
+  {id:'fallEducation',step:8,type:'Observation',source:'Observation',question:'Patient-specific fall prevention education provided and documented?',options:['yes','no'],action:'Provide education and update the bedside communication tool.'},
+  {id:'fallSafetyInterventions',step:9,type:'Observation',source:'Observation',question:'Additional safety interventions implemented when indicated? Telesitter, Companion, Bed/Chair alarm.',options:['yes','no'],action:'Implement the indicated safety intervention according to policy.'},
+  {id:'fallHandoff',step:10,type:'Observation',source:'Observation',question:"Fall prevention plan communicated during handoff using the organization's standard communication process? Whiteboard/handoff tool",options:['yes','no'],action:"Update and communicate the patient's individualized fall prevention plan during handoff."},
+  {id:'fallEnvironment',step:11,type:'Observation',source:'Observation',question:'Patient environment supports fall prevention (bed low and locked, call light within reach, clutter-free environment, appropriate footwear)?',options:['yes','no'],action:'Correct identified environmental hazards immediately.'}
+];
+
+(function(){
+  const defs=window.PRAXSYS_FALL_STEPS.slice(1);
+  const records=[];
+  const start=new Date('2026-05-01T09:00:00');
+  for(let i=0;i<64;i++){
+    const date=new Date(start); date.setDate(date.getDate()+Math.floor(i*1.4));
+    const responses={}; const correctiveActions=[];
+    defs.forEach((d,j)=>{
+      let answer=((i+j*4)%17===0)?'No':'Yes';
+      if(d.id==='fallMobilityEquipment' && i%9===0) answer='N/A';
+      responses[d.id]=answer;
+      if(answer==='No'){
+        const followUp=((i+j)%3===0);
+        correctiveActions.push({step:d.step,element:d.question,action:d.action,status:followUp?'Requires follow-up':'Completed during observation',identified:date.toISOString().slice(0,10),completed:followUp?'':date.toISOString().slice(0,10)});
+      }
+    });
+    records.push({id:`FALL-${String(i+1).padStart(4,'0')}`,patientId:`DEMO-${String(3101+i).padStart(4,'0')}`,date:date.toISOString().slice(0,10),risk:i%3===0?'High':'Moderate',assessmentAvailable:i%11!==0,responses,correctiveActions,compliant:correctiveActions.length===0});
+  }
+  window.PRAXSYS_FALL_MANAGER_DATA=records;
+})();
+
 (function () {
   const app = document.getElementById('app');
 
@@ -183,7 +223,7 @@ window.PRAXSYS_RULES = {
     criteriaAnswer:null, criteriaAck:false, providerAnswer:null, providerAck:false,
     providerOrigin:'reviewOrder', currentObservation:'handHygiene', observationAnswer:null,
     observationAck:false, results:[], completion:null,
-    managerFilters:{month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'}, managerReport:'overview', managerSelected:null
+    managerFilters:{month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'}, managerReport:'overview', managerSelected:null, managerDomain:'CAUTI', fallStep:0, fallAnswer:null, fallActionStatus:null, fallResults:[], fallCompletion:null
   };
   const patient = () => window.PRAXSYS_PATIENTS[state.patientId];
 
@@ -198,18 +238,63 @@ window.PRAXSYS_RULES = {
   }
   function shell(main, side='') { return `${patientHeader()}<div class="screen-grid"><div>${main}</div><aside class="stack">${side}</aside></div>`; }
 
+  function reviewScreenIdentity() {
+    const patientPart = state.patientId ? `:${state.patientId}` : '';
+    if (state.view === 'observation') {
+      const o = observationMap[state.currentObservation];
+      return { key:`observation:${state.currentObservation}${patientPart}`, label:`${o.section} — ${o.question}` };
+    }
+    if (state.view === 'providerDecision') {
+      return { key:`providerDecision:${state.providerOrigin}${patientPart}`, label:'Provider discussion — Clinical decision' };
+    }
+    if (state.view === 'manager') {
+      return { key:`manager:${state.managerDomain}:${state.managerReport}`, label:`Manager dashboard — ${state.managerDomain} — ${state.managerReport}` };
+    }
+    if (state.view === 'fallHome') return {key:`fallHome${patientPart}`,label:'Fall Prevention — Prevention Observation'};
+    if (state.view === 'fallObservation') { const f=window.PRAXSYS_FALL_STEPS[state.fallStep]; return {key:`fall:${f.id}${patientPart}`,label:`Fall Prevention — Step ${f.step}`}; }
+    if (state.view === 'fallCompletion') return {key:`fallCompletion${patientPart}`,label:'Fall Prevention — Observation complete'};
+    const labels={
+      role:'Workspace selection', patients:'Select a patient', conditions:'Select a patient safety condition',
+      pathwayHome:'CAUTI prevention — Foley catheter insertion observation',
+      reviewOrder:'Provider order review', clinicalAssessment:'Current patient assessment',
+      completion:'Pathway completion'
+    };
+    return { key:`${state.view}${patientPart}`, label:labels[state.view]||state.view };
+  }
+
   function render() {
-    const renderers={role:renderRole,patients:renderPatients,conditions:renderConditions,pathwayHome:renderPathwayHome,reviewOrder:renderReviewOrder,clinicalAssessment:renderClinicalAssessment,providerDecision:renderProviderDecision,observation:renderObservation,completion:renderCompletion,manager:renderManager};
-    app.innerHTML=renderers[state.view](); bind(); window.scrollTo({top:0,behavior:'smooth'});
+    const renderers={role:renderRole,patients:renderPatients,conditions:renderConditions,pathwayHome:renderPathwayHome,reviewOrder:renderReviewOrder,clinicalAssessment:renderClinicalAssessment,providerDecision:renderProviderDecision,observation:renderObservation,completion:renderCompletion,manager:renderManager,fallHome:renderFallHome,fallObservation:renderFallObservation,fallCompletion:renderFallCompletion};
+    const reviewIdentity=reviewScreenIdentity();
+    app.dataset.reviewScreenKey=reviewIdentity.key;
+    app.dataset.reviewScreenLabel=reviewIdentity.label;
+    app.innerHTML=renderers[state.view](); bind();
+    // Directly switch reviewer-note context after every application render.
+    // This avoids relying on DOM heuristics or event timing.
+    if(window.PraxSysReviewerNotes&&typeof window.PraxSysReviewerNotes.switchScreen==='function'){
+      window.PraxSysReviewerNotes.switchScreen(reviewIdentity);
+    }
+    window.dispatchEvent(new CustomEvent('praxsys:screenchange',{detail:reviewIdentity}));
+    window.scrollTo({top:0,behavior:'smooth'});
   }
 
   function renderRole(){return `<div class="card"><div class="section-label">Workspace selection</div><h1 class="card-title">Choose how you are using PraxSys</h1><div class="card-subtitle">The application presents different workflows for bedside observers and nursing leaders.</div></div><div class="tile-grid"><button class="tile ${state.role==='Clinician'?'selected':''}" data-role="Clinician"><h3>Clinician</h3><p>Review patient context, validate clinical criteria, and document insertion observations.</p></button><button class="tile ${state.role==='Manager'?'selected':''}" data-role="Manager"><h3>Manager</h3><p>Review quality trends, open events, and catheter insertion compliance.</p></button></div><div class="button-row"><button class="button primary" id="continueRole">Continue</button></div>`;}
 
   function renderPatients(){const tiles=Object.values(window.PRAXSYS_PATIENTS).map(p=>`<button class="tile" data-patient="${p.id}"><h3>${p.name}</h3><p>${p.mrn} · ${p.age} years · ${p.unit} ${p.room}</p><span class="source-pill">${p.source}</span><span class="source-pill">Catheter order available</span></button>`).join('');return `<button class="back-link" data-back="role">← Back</button><div class="card"><div class="section-label">Patient context</div><h1 class="card-title">Select a patient</h1><div class="card-subtitle">Clinical context is shown as if retrieved through EHR interoperability.</div></div><div class="tile-grid">${tiles}</div>`;}
 
-  function renderConditions(){return shell(`<button class="back-link" data-back="patients">← Back</button><div class="card"><div class="section-label">Clinical focus</div><h1 class="card-title">Select a patient safety condition</h1></div><div class="tile-grid"><button class="tile" data-condition="CAUTI"><h3>CAUTI</h3><p>Catheter-associated urinary tract infection prevention and insertion observation.</p></button><button class="tile"><h3>CLABSI</h3><p>Central line-associated bloodstream infection.</p></button><button class="tile"><h3>Falls</h3><p>Fall prevention and event review.</p></button><button class="tile"><h3>Pressure Injury</h3><p>Skin integrity and pressure injury prevention.</p></button></div>`,`<div class="card"><div class="section-label">Selected patient</div><h2 class="card-title">${patient().name}</h2><div class="card-subtitle">${patient().unit} ${patient().room}<br>${patient().encounter}</div></div>`);}
+  function renderConditions(){return shell(`<button class="back-link" data-back="patients">← Back</button><div class="card"><div class="section-label">Clinical focus</div><h1 class="card-title">Select a patient safety condition</h1></div><div class="tile-grid"><button class="tile" data-condition="CAUTI"><h3>CAUTI</h3><p>Catheter-associated urinary tract infection prevention and insertion observation.</p></button><button class="tile"><h3>CLABSI</h3><p>Central line-associated bloodstream infection.</p></button><button class="tile" data-condition="FALLS"><h3>Falls</h3><p>Fall prevention observation and corrective action follow-up.</p></button><button class="tile"><h3>Pressure Injury</h3><p>Skin integrity and pressure injury prevention.</p></button></div>`,`<div class="card"><div class="section-label">Selected patient</div><h2 class="card-title">${patient().name}</h2><div class="card-subtitle">${patient().unit} ${patient().room}<br>${patient().encounter}</div></div>`);}
 
   function renderPathwayHome(){return shell(`<button class="back-link" data-back="conditions">← Back</button><div class="card"><div class="section-label">CAUTI prevention</div><h1 class="card-title">Foley catheter insertion observation</h1><div class="card-subtitle">Review the provider order, validate current clinical criteria, and observe insertion practices from preparation through EHR documentation.</div><div class="button-row"><button class="button primary" id="startPathway">Begin clinical review</button></div></div>`,`<div class="card"><div class="section-label">Data sources</div><span class="source-pill">EHR pull</span><span class="source-pill">Clinical judgment</span><span class="source-pill">Observation</span></div>`);}
+
+  function renderFallHome(){const f=window.PRAXSYS_FALL_PATIENTS[state.patientId];return shell(`<button class="back-link" data-back="conditions">← Back</button><div class="card"><div class="section-label">Fall Prevention</div><h1 class="card-title">Prevention Observation</h1><div class="card-subtitle">Review the most recent fall assessment, validate current risk, and observe individualized fall prevention practices.</div><div class="button-row"><button class="button primary" id="startFallPathway">Begin fall prevention review</button></div></div>`,`<div class="card"><div class="section-label">Current fall-risk context</div><div class="data-value">${f.risk} fall risk</div><div class="card-subtitle">${f.assessment}<br>Score ${f.score}<br>${f.assessedAt}</div><span class="source-pill">EHR pull</span><span class="source-pill">Clinical judgment</span><span class="source-pill">Observation</span></div>`);}
+
+  function fallStep(){return window.PRAXSYS_FALL_STEPS[state.fallStep];}
+  function renderFallObservation(){const f=fallStep(),ctx=window.PRAXSYS_FALL_PATIENTS[state.patientId];let context='';if(f.step===1){context=`<div class="ehr-panel"><div class="section-label">Information from the EHR</div><h2 class="card-title" style="font-size:21px">Most recent Fall Assessment</h2><div class="ehr-grid"><div class="data-cell"><div class="data-label">Risk level</div><div class="data-value">${ctx.risk}</div></div><div class="data-cell"><div class="data-label">Assessment / score</div><div class="data-value">${ctx.assessment} · ${ctx.score}</div></div><div class="data-cell"><div class="data-label">Documented</div><div class="data-value">${ctx.assessedAt}</div></div><div class="data-cell"><div class="data-label">Source</div><div class="data-value">EHR Pull</div></div></div></div>`;}
+    let buttons='';if(f.step===1){buttons=`<button class="decision yes ${state.fallAnswer==='reviewed'?'active':''}" data-fall-answer="reviewed">I acknowledge that I reviewed the most recent fall assessment.</button><button class="decision no ${state.fallAnswer==='unavailable'?'active':''}" data-fall-answer="unavailable">No fall assessment available to review.</button>`;}else{buttons=`<button class="decision yes ${state.fallAnswer==='yes'?'active':''}" data-fall-answer="yes">Yes</button><button class="decision no ${state.fallAnswer==='no'?'active':''}" data-fall-answer="no">No</button>${f.options.includes('na')?`<button class="decision ${state.fallAnswer==='na'?'active':''}" data-fall-answer="na">N/A</button>`:''}`;}
+    let action='';if(state.fallAnswer==='no'&&f.action){action=`<div class="inline-action danger"><strong>Corrective action required:</strong> ${f.action}<div class="question-helper" style="margin-top:10px">Can this corrective action be completed during the observation?</div><div class="decision-row"><button class="decision yes ${state.fallActionStatus==='completed'?'active':''}" data-fall-action="completed">Completed during observation</button><button class="decision no ${state.fallActionStatus==='followup'?'active':''}" data-fall-action="followup">Requires follow-up</button></div></div>`;}
+    const can=!!state.fallAnswer && (state.fallAnswer!=='no'||!!state.fallActionStatus);return shell(`<button class="back-link" id="backFallObservation">← Back</button>${context}<div class="card question-card" style="margin-top:${context?'14':'0'}px"><div class="section-label">Fall Prevention · Step ${f.step} of 11 · ${f.source}</div><h1 class="question-text">${f.question}</h1><div class="decision-row fall-decisions">${buttons}</div>${action}<div class="button-row"><button class="button primary" id="continueFallObservation" ${can?'':'disabled'}>${f.step===11?'Complete observation':'Continue'}</button></div></div>`,`<div class="card"><div class="section-label">Pathway</div><div class="card-subtitle">Prevention Observation<br>Step ${f.step} of 11</div></div>`);}
+
+  function recordFallStep(){const f=fallStep();state.fallResults.push({id:f.id,step:f.step,question:f.question,answer:state.fallAnswer,action:state.fallAnswer==='no'?f.action:'',actionStatus:state.fallAnswer==='no'?state.fallActionStatus:''});}
+  function renderFallCompletion(){const actions=state.fallResults.filter(r=>r.action);const follow=actions.filter(r=>r.actionStatus==='followup');return shell(`<div class="card completion"><div class="completion-icon">✓</div><div class="section-label">Fall Prevention</div><h1 class="card-title">Prevention observation complete</h1><div class="card-subtitle">The Fall Prevention pathway has been recorded for this demonstration.</div><div class="completion-grid"><div class="data-cell"><div class="data-label">Corrective actions identified</div><div class="data-value">${actions.length}</div></div><div class="data-cell"><div class="data-label">Require follow-up</div><div class="data-value">${follow.length}</div></div></div>${follow.length?`<div class="inline-action warning" style="text-align:left"><strong>Outstanding corrective actions</strong><br>${follow.map(x=>`Step ${x.step}: ${x.action}`).join('<br>')}</div>`:''}<div class="button-row" style="justify-content:center"><button class="button primary" id="returnFallPatients">Return to patient list</button></div></div>`,`<div class="card"><div class="section-label">Follow-up</div><div class="card-subtitle">Corrective actions marked <strong>Requires follow-up</strong> are included in the Falls Manager tracking view.</div></div>`);}
 
   function ehrOrderPanel(){const p=patient();const criteria=window.PRAXSYS_APPROVED_INDICATIONS.map(x=>`<li>${x}</li>`).join('');return `<div class="ehr-panel"><div class="section-label">Information from the EHR</div><h2 class="card-title" style="font-size:21px">Provider catheter order</h2><div class="ehr-grid"><div class="data-cell"><div class="data-label">Order</div><div class="data-value">${p.order}</div></div><div class="data-cell"><div class="data-label">Ordering provider</div><div class="data-value">${p.provider}</div></div><div class="data-cell"><div class="data-label">Documented indication</div><div class="data-value">${p.indication}</div></div><div class="data-cell"><div class="data-label">Clinical detail</div><div class="data-value">${p.detail}</div></div></div><details class="disclosure"><summary>View approved indication criteria</summary><ul>${criteria}</ul></details></div>`;}
 
@@ -276,7 +361,12 @@ window.PRAXSYS_RULES = {
     const r=(window.PRAXSYS_MANAGER_DATA||[]).find(x=>x.id===state.managerSelected);if(!r)return '';
     return `<div class="detail-overlay"><div class="detail-panel"><button class="detail-close" id="closeManagerDetail">×</button><div class="section-label">Synthetic workflow case</div><h2 class="card-title">${r.id} · ${r.patientId}</h2><div class="detail-grid"><div class="data-cell"><div class="data-label">Date / indication</div><div class="data-value">${r.date}<br>${r.indication}</div></div><div class="data-cell"><div class="data-label">Provider order review</div><div class="data-value">${r.orderReviewed?'Reviewed':'Provider review required'}</div></div><div class="data-cell"><div class="data-label">Current clinical criteria</div><div class="data-value">${r.criteriaMet===true?'Meets criteria':r.criteriaMet===false?'Does not meet criteria':'Not assessed'}</div></div><div class="data-cell"><div class="data-label">Provider decision / outcome</div><div class="data-value">${r.providerDecision}<br>${r.pathwayOutcome}</div></div></div>${observationRows(r)}<div class="mini-note"><strong>Corrective actions</strong><br>${r.missedPractices.length?r.missedPractices.join('<br>'):'None required'}</div><div class="mini-note"><strong>Required documentation</strong><br>${r.requiredDocumentation}</div></div></div>`;
   }
-  function renderManager(){
+  function managerDomainSelector(){return `<div class="report-tabs domain-tabs"><button class="report-tab ${state.managerDomain==='CAUTI'?'active':''}" data-manager-domain="CAUTI">CAUTI</button><button class="report-tab ${state.managerDomain==='FALLS'?'active':''}" data-manager-domain="FALLS">Falls Prevention</button></div>`;}
+  function renderFallsManager(){const records=window.PRAXSYS_FALL_MANAGER_DATA||[];const actions=records.flatMap(r=>r.correctiveActions.map(a=>({...a,caseId:r.id,patientId:r.patientId,risk:r.risk})));const open=actions.filter(a=>a.status==='Requires follow-up');const completed=actions.filter(a=>a.status==='Completed during observation');const compliant=records.filter(r=>r.compliant).length;const byStep=window.PRAXSYS_FALL_STEPS.slice(1).map(d=>({step:d.step,label:d.question,count:actions.filter(a=>a.step===d.step).length}));let body='';if(state.managerReport==='followup'){body=`<div class="card"><div class="section-label">Outstanding Corrective Actions</div><h2 class="card-title" style="font-size:21px">Requires follow-up</h2><div class="table-wrap"><table class="summary-table manager-table"><thead><tr><th>Case</th><th>Risk</th><th>Step</th><th>Corrective action</th><th>Status</th></tr></thead><tbody>${open.map(a=>`<tr><td>${a.caseId}</td><td>${a.risk}</td><td>${a.step}</td><td>${a.action}</td><td><span class="status-badge status-amber">Requires follow-up</span></td></tr>`).join('')||'<tr><td colspan="5">No outstanding corrective actions.</td></tr>'}</tbody></table></div></div>`;}else if(state.managerReport==='fallActions'){body=`<div class="card"><div class="section-label">Corrective actions by pathway step</div>${byStep.map(x=>`<div class="bar-row"><span class="bar-label">Step ${x.step}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.min(100,x.count*10)}%"></span></span><strong>${x.count}</strong></div>`).join('')}</div>`;}else{body=`<div class="dashboard-grid"><div class="card"><div class="section-label">Fall Prevention pathway</div><h2 class="card-title" style="font-size:21px">Observation summary</h2><div class="card-subtitle">Synthetic demonstration cases based on the Fall Prevention Pathway.</div>${byStep.slice(0,5).map(x=>`<div class="bar-row"><span class="bar-label">Step ${x.step}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.min(100,x.count*10)}%"></span></span><strong>${x.count}</strong></div>`).join('')}</div><div class="card"><div class="section-label">Follow-up status</div><div class="data-cell"><div class="data-label">Completed during observation</div><div class="data-value">${completed.length}</div></div><div class="data-cell" style="margin-top:10px"><div class="data-label">Requires follow-up</div><div class="data-value">${open.length}</div></div></div></div>`;}
+    return `<button class="back-link" data-back="role">← Back</button><div class="card manager-heading"><div><div class="section-label">Nursing leadership</div><h1 class="card-title">Fall Prevention dashboard</h1><div class="card-subtitle">Synthetic demonstration data based on the Fall Prevention Pathway. Existing CAUTI reporting remains available as a separate domain.</div></div><span class="status-badge status-blue">${records.length} observations</span></div>${managerDomainSelector()}<div class="kpi-grid"><div class="kpi"><div class="kpi-label">Prevention observations</div><div class="kpi-value">${records.length}</div></div><div class="kpi"><div class="kpi-label">Fully compliant</div><div class="kpi-value">${pct(compliant,records.length)}%</div></div><button class="kpi kpi-button" data-report="fallActions"><div class="kpi-label">Corrective actions</div><div class="kpi-value">${actions.length}</div></button><button class="kpi kpi-button" data-report="followup"><div class="kpi-label">Outstanding follow-up</div><div class="kpi-value">${open.length}</div><span class="status-badge ${open.length?'status-amber':'status-blue'}">Requires follow-up</span></button></div><div class="report-tabs"><button class="report-tab ${state.managerReport==='overview'?'active':''}" data-report="overview">Overview</button><button class="report-tab ${state.managerReport==='fallActions'?'active':''}" data-report="fallActions">Corrective actions</button><button class="report-tab ${state.managerReport==='followup'?'active':''}" data-report="followup">Outstanding corrective actions</button></div>${body}`;}
+  function renderManager(){return state.managerDomain==='FALLS'?renderFallsManager():renderCautiManager().replace('<div class="kpi-grid">',managerDomainSelector()+'<div class="kpi-grid">');}
+
+  function renderCautiManager(){
     const records=managerRecords();
     const insertion=records.filter(r=>r.insertionObserved);
     const full=insertion.filter(r=>r.fullCompliance).length;
@@ -296,6 +386,13 @@ window.PRAXSYS_RULES = {
     const cr=document.getElementById('continueRole');if(cr)cr.onclick=()=>{state.view=state.role==='Manager'?'manager':'patients';render();};
     document.querySelectorAll('[data-patient]').forEach(el=>el.onclick=()=>{state.patientId=el.dataset.patient;state.view='conditions';render();});
     document.querySelectorAll('[data-condition="CAUTI"]').forEach(el=>el.onclick=()=>{state.view='pathwayHome';render();});
+    document.querySelectorAll('[data-condition="FALLS"]').forEach(el=>el.onclick=()=>{state.fallStep=0;state.fallAnswer=null;state.fallActionStatus=null;state.fallResults=[];state.view='fallHome';render();});
+    const sf=document.getElementById('startFallPathway');if(sf)sf.onclick=()=>{state.fallStep=0;state.fallAnswer=null;state.fallActionStatus=null;state.fallResults=[];state.view='fallObservation';render();};
+    document.querySelectorAll('[data-fall-answer]').forEach(el=>el.onclick=()=>{state.fallAnswer=el.dataset.fallAnswer;state.fallActionStatus=null;render();});
+    document.querySelectorAll('[data-fall-action]').forEach(el=>el.onclick=()=>{state.fallActionStatus=el.dataset.fallAction;render();});
+    const bfo=document.getElementById('backFallObservation');if(bfo)bfo.onclick=()=>{if(state.fallStep===0){state.view='fallHome';}else{state.fallStep--;const prev=state.fallResults.pop();state.fallAnswer=prev?prev.answer:null;state.fallActionStatus=prev?prev.actionStatus:null;}render();};
+    const cfo=document.getElementById('continueFallObservation');if(cfo)cfo.onclick=()=>{recordFallStep();if(state.fallStep>=window.PRAXSYS_FALL_STEPS.length-1){state.view='fallCompletion';}else{state.fallStep++;state.fallAnswer=null;state.fallActionStatus=null;}render();};
+    const rfp=document.getElementById('returnFallPatients');if(rfp)rfp.onclick=()=>reset('patients');
     const start=document.getElementById('startPathway');if(start)start.onclick=()=>{state.view='reviewOrder';render();};
     document.querySelectorAll('[data-review]').forEach(el=>el.onclick=()=>{state.reviewAnswer=el.dataset.review;state.reviewAck=false;render();});
     const ra=document.getElementById('reviewAck');if(ra)ra.onchange=e=>{state.reviewAck=e.target.checked;render();};
@@ -313,12 +410,13 @@ window.PRAXSYS_RULES = {
     const fa=document.getElementById('finalAck'),rp=document.getElementById('returnPatients');if(fa&&rp)fa.onchange=e=>{rp.disabled=!e.target.checked;};if(rp)rp.onclick=()=>reset('patients');
     const mf={managerMonth:'month',managerOrder:'order',managerCriteria:'criteria',managerOutcome:'outcome',managerIndication:'indication'};Object.entries(mf).forEach(([id,key])=>{const el=document.getElementById(id);if(el)el.onchange=e=>{state.managerFilters[key]=e.target.value;state.managerSelected=null;render();};});
     const clear=document.getElementById('clearManagerFilters');if(clear)clear.onclick=()=>{state.managerFilters={month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'};state.managerSelected=null;render();};
+    document.querySelectorAll('[data-manager-domain]').forEach(el=>el.onclick=()=>{state.managerDomain=el.dataset.managerDomain;state.managerReport='overview';state.managerSelected=null;render();});
     document.querySelectorAll('[data-report]').forEach(el=>el.onclick=()=>{state.managerReport=el.dataset.report;state.managerSelected=null;render();});
     document.querySelectorAll('[data-kpi-report]').forEach(el=>el.onclick=()=>{state.managerReport=el.dataset.kpiReport;state.managerSelected=null;render();});
     document.querySelectorAll('[data-event-id]').forEach(el=>el.onclick=()=>{state.managerSelected=el.dataset.eventId;render();});
     const close=document.getElementById('closeManagerDetail');if(close)close.onclick=()=>{state.managerSelected=null;render();};
   }
 
-  function reset(destination='role'){Object.assign(state,{view:destination,role:'Clinician',patientId:'john',reviewAnswer:null,reviewAck:false,criteriaAnswer:null,criteriaAck:false,providerAnswer:null,providerAck:false,providerOrigin:'reviewOrder',currentObservation:'handHygiene',observationAnswer:null,observationAck:false,results:[],completion:null,managerFilters:{month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'},managerReport:'overview',managerSelected:null});render();}
+  function reset(destination='role'){Object.assign(state,{view:destination,role:'Clinician',patientId:'john',reviewAnswer:null,reviewAck:false,criteriaAnswer:null,criteriaAck:false,providerAnswer:null,providerAck:false,providerOrigin:'reviewOrder',currentObservation:'handHygiene',observationAnswer:null,observationAck:false,results:[],completion:null,managerFilters:{month:'All',order:'All',criteria:'All',outcome:'All',indication:'All'},managerReport:'overview',managerSelected:null,managerDomain:'CAUTI',fallStep:0,fallAnswer:null,fallActionStatus:null,fallResults:[],fallCompletion:null});render();}
   document.getElementById('resetDemoButton').onclick=()=>reset('role');render();
 })();;

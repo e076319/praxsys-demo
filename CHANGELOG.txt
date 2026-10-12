@@ -1,0 +1,24 @@
+PraxSys NSI Demo v6.0.0
+Build date: 2026-10-12
+
+Changes from verified V5 baseline
+- Active pathway updated from green worksheet: CAUTI Insertion Pathway.
+- All non-authorized pathways removed from the visible clinician pathway selector.
+- Added three-outcome Step 1 with separate tracking of No and Unable to determine.
+- Added multi-select opportunity checkboxes for Steps 2–5.
+- Requires at least one opportunity selection when "No – Opportunity identified" is chosen.
+- Shows all recommendations associated with selected opportunities.
+- Preserves the initially observed response for reporting even when corrected later.
+- Added per-opportunity resolution status at confirmation.
+- Added browser-local reporting capture and manager review of completed demo observations.
+- Enlarged PraxSys logo on all screens while maintaining responsive sizing.
+- Reset Demo resets the active workflow without deleting recorded demo reporting history.
+
+Not included
+- No Epic/MEDITECH/FHIR integration.
+- No real patient dataset.
+- No inactive pathway content.
+
+V6.0.1 (2026-10-12): Preserve scroll position for in-screen interactions, reset on navigation; moderately enlarge logo. No clinical workflow changes.
+
+V6.0.2 (2026-10-12): Scoped presentation changes: preserve scroll on in-step selection and scroll to new content on navigation; compact header/content spacing for 100% zoom; larger PraxSys symbol and white wordmark. No clinical workflow or storage changes.

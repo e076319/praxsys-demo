@@ -1,4 +1,4 @@
-# PraxSys NSI Standalone Demo v6.0.0
+# PraxSys NSI Standalone Demo v6.0.2
 
 Build date: 2026-10-12
 

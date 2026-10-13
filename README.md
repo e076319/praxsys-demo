@@ -1,4 +1,4 @@
-# PraxSys NSI Standalone Demo v6.0.2
+# PraxSys NSI Standalone Demo v6.0.0
 
 Build date: 2026-10-12
 
@@ -14,4 +14,7 @@ The active pathway definition is isolated in `assets/pathway.cauti-insertion.v1.
 Completed demo observations are retained only in the browser's local storage. No real patient dataset is included.
 
 
-V6.0.2: Presentation-only update. Existing V6.0.1 and V5 packages remain untouched. Test locally before GitHub deployment.
+V6.0.3: Presentation-only update. Existing V6.0.1 and V5 packages remain untouched. Test locally before GitHub deployment.
+
+
+V6.0.3: Added CAUTI Prevention from the green worksheet; original CAUTI Insertion pathway definition unchanged.

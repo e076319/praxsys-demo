@@ -1,3 +1,8 @@
+V6.0.3 — October 13, 2026
+- Added CAUTI Prevention selectable alongside CAUTI Insertion.
+- Added four-step prevention workflow and six maintenance opportunities from updated green worksheet.
+- Preserved original insertion pathway definition and demo storage.
+
 PraxSys NSI Demo v6.0.0
 Build date: 2026-10-12
 

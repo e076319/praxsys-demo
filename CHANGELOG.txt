@@ -27,3 +27,8 @@ Not included
 V6.0.1 (2026-10-12): Preserve scroll position for in-screen interactions, reset on navigation; moderately enlarge logo. No clinical workflow changes.
 
 V6.0.2 (2026-10-12): Scoped presentation changes: preserve scroll on in-step selection and scroll to new content on navigation; compact header/content spacing for 100% zoom; larger PraxSys symbol and white wordmark. No clinical workflow or storage changes.
+
+V6.0.4 | 2026-10-14
+- Added five-step Fall Prevention pathway with exact clinical question, response, expected-practice, opportunity, and recommendation wording from the supplied worksheet.
+- Added Falls selection and Fall Prevention observation dashboard reporting.
+- Retained existing CAUTI pathway definitions and browser storage records.

@@ -20,3 +20,7 @@ V6.0.3: Presentation-only update. Existing V6.0.1 and V5 packages remain untouch
 V6.0.3: Added CAUTI Prevention from the green worksheet; original CAUTI Insertion pathway definition unchanged.
 
 V6.0.4 (2026-10-14): Added Fall Prevention pathway using the Falls worksheet from New NSI updated(2).xlsx. Both CAUTI pathway definition files remain unchanged. Fall opportunities require per-item resolution status.
+
+
+## V6.0.5 (2026-10-14)
+Adds CLABSI Insertion Observation Pathway using the CLABSI Insertion Pathway worksheet in New NSI updated(3).xlsx. Includes Step 1 early exit, per-opportunity resolution status, and existing manager dashboard integration. Existing CAUTI and Fall pathway definitions are unchanged.

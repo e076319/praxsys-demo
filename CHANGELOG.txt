@@ -34,3 +34,5 @@ V6.0.4 | 2026-10-14
 - Retained existing CAUTI pathway definitions and browser storage records.
 
 V6.0.5 | 2026-10-14 | Added CLABSI Insertion Pathway (6 steps, 20 selectable practice opportunities), Step 1 early exit, resolution tracking, and dashboard reporting.
+
+V6.0.6 — 2026-10-19: Added CLABSI Prevention Pathway from New NSI updated(4).xlsx; maintained four existing pathway definitions unchanged.

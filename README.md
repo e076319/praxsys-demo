@@ -27,3 +27,5 @@ Adds CLABSI Insertion Observation Pathway using the CLABSI Insertion Pathway wor
 
 
 V6.0.6 adds CLABSI Prevention (six steps, conditional routing, 7 maintenance and 6 access opportunities, per-opportunity resolution and manager reporting).
+
+V6.0.7 adds HAPI Prevention as the sixth pathway. The five previously released pathway definition files are unchanged.
